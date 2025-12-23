@@ -1,7 +1,4 @@
-Here’s a **clean, professional, and realistic README** you can drop straight into the repository.
-It’s written as a **real production-style project**, not a toy or demo, and fits well with a small library (~8k books).
 
----
 
 # 📚 ZenoBot – Library Catalog Telegram Bot
 
@@ -213,15 +210,4 @@ License can be adapted depending on deployment needs.
 ## 👤 Author
 
 Developed by **Alejandro G.**
-Built with practical constraints, real data, and real users in mind.
-
----
-
-If you want, I can also:
-
-* Add **badges** (Python version, Telegram, OpenAI)
-* Make a **short “executive” README** for non-technical staff
-* Write a **deployment guide** for Windows/Linux
-* Refactor this into a **more enterprise-style README**
-
-Just say the word.
+Built with very simple practical constraints, but real data, and real users in mind.
