@@ -255,6 +255,10 @@ REVISIÓN:
   - incluye changes.f_revision
   - si NO indica fecha, deja changes.f_revision vacío ("") para que el sistema ponga la fecha actual.
 
+  Si el usuario pide desmarcar, quitar revisión, poner a no revisado, o nulo, vaciar revisión o similar:
+    → usar changes.f_revision="EMPTY"
+    → nunca usar ""
+
 COMENTARIOS:
 - Si el usuario dice "añade comentario", "nota", "observación":
   - usa changes.comentarios con el texto indicado.

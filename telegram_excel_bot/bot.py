@@ -19,6 +19,8 @@ from telegram_excel_bot.speech2text import Speech2Text
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("catalogo-bot")
 
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Unhandled exception", exc_info=context.error)
 
@@ -28,25 +30,106 @@ def allowed(update: Update, settings) -> bool:
     chat_id = update.effective_chat.id if update.effective_chat else None
     return chat_id is not None and chat_id in settings.allowed_chat_ids
 
+async def send_long_message(update, text: str):
+    MAX = 4000  # margen seguro bajo 4096
 
-def fmt_row(r: dict) -> str:
+    if len(text) <= MAX:
+        await update.message.reply_text(text, parse_mode="HTML")
+        return
+
+    parts = []
+    current = ""
+
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > MAX:
+            parts.append(current)
+            current = line
+        else:
+            if current:
+                current += "\n" + line
+            else:
+                current = line
+
+    if current:
+        parts.append(current)
+
+    for p in parts:
+        await update.message.reply_text(p, parse_mode="HTML")
+
+def fmt_row(r: dict, prev: dict | None = None, changed_keys: set[str] | None = None) -> str:
     lines = [f"📚 <b>Id-{r.get('id')}</b>"]
 
-    def add(label, value):
-        if value not in (None, "", "None"):
-            lines.append(f"<b>{label}</b>: {value}")
+    internal_to_rowkey = {
+        "titulo": "Título",
+        "autor": "Autor",
+        "procedencia": "Procedencia",
+        "categoria": "Categoría",
+        "editorial": "Editorial",
+        "ano": "Año",
+        "columna": "Columna",
+        "fila": "Fila",
+        "isbn": "ISBN",
+        "f_revision": "F_revision",
+        "comentarios": "Comentarios",
+    }
 
-    add("Título", r.get("Título"))
-    add("Autor", r.get("Autor"))
-    add("Procedencia", r.get("Procedencia"))
-    add("Categoría", r.get("Categoría"))
-    add("Editorial", r.get("Editorial"))
-    add("Año", r.get("Año"))
-    add("Columna", r.get("Columna"))
-    add("Fila", r.get("Fila"))
-    add("ISBN", r.get("ISBN"))
-    add("F. revisión", r.get("F_revision"))
-    add("Comentarios", r.get("Comentarios"))
+    rowkey_to_label = {
+        "Título": "Título",
+        "Autor": "Autor",
+        "Procedencia": "Procedencia",
+        "Categoría": "Categoría",
+        "Editorial": "Editorial",
+        "Año": "Año",
+        "Columna": "Columna",
+        "Fila": "Fila",
+        "ISBN": "ISBN",
+        "F_revision": "F. revisión",
+        "Comentarios": "Comentarios",
+    }
+
+    def norm(v) -> str:
+        if v in (None, "", "None"):
+            return ""
+        return str(v).strip()
+
+    def disp(v) -> str:
+        s = norm(v)
+        return s if s != "" else "∅"   # si prefieres vacío literal, cambia "∅" por ""
+
+    # Para saber qué rowkeys son candidatos a mostrar como diff
+    changed_rowkeys: set[str] = set()
+    if changed_keys:
+        for k in changed_keys:
+            rk = internal_to_rowkey.get(k)
+            if rk:
+                changed_rowkeys.add(rk)
+
+    def add(rowkey: str):
+        label = rowkey_to_label[rowkey]
+        new_v = r.get(rowkey)
+
+        # Si hay "prev" y este campo estaba en changes, intenta imprimir old->new si realmente cambió
+        if prev is not None and rowkey in changed_rowkeys:
+            old_v = prev.get(rowkey)
+            if norm(old_v) != norm(new_v):
+                lines.append(f"<b>{label}</b>: {disp(old_v)}  →  {disp(new_v)}")
+                return
+
+        # Si no cambió (o no aplica), imprimir normal si hay valor
+        if norm(new_v) != "":
+            lines.append(f"<b>{label}</b>: {norm(new_v)}")
+
+    add("Título")
+    add("Autor")
+    add("Procedencia")
+    add("Categoría")
+    add("Editorial")
+    add("Año")
+    add("Columna")
+    add("Fila")
+    add("ISBN")
+    add("F_revision")
+    add("Comentarios")
 
     return "\n".join(lines)
 
@@ -137,8 +220,11 @@ async def authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
+    await send_long_message(update,
         "🤖 <b>ZenoBot – Ayuda rápida</b>\n\n"
+
+       "(Escribir /start para ver tu chatid y usarlo en allowlist si está habilitada la autenticación)\n"
+       "(Escribir /authorize <chat_id> para que el admin autorice un nuevo chat_id)\n\n"
 
         "Los campos del catálogo son:\n"
         "• id: identificador único del libro\n"
@@ -247,7 +333,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Si hay varias líneas, ejecuta una a una
     if len(lines) > 1:
         for i, ln in enumerate(lines, start=1):
-            await update.message.reply_text(f"➡️ ({i}/{len(lines)}) {ln}")
+            await send_long_message(update, f"➡️ ({i}/{len(lines)}) {ln}")
             await process_natural_language(update, context, ln)
         return
 
@@ -262,7 +348,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message:
         return
     if not allowed(update, settings):
-        await update.message.reply_text("No autorizado. Pásame tu chat_id para allowlist.")
+        await send_long_message(update, "No autorizado. Pásame tu chat_id para allowlist.")
         return
 
     # Detecta voice (nota de voz) o audio (archivo)
@@ -290,16 +376,16 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         transcript = (transcript or "").strip()
 
         if not transcript:
-            await update.message.reply_text("No pude transcribir el audio.")
+            await send_long_message(update, "No pude transcribir el audio.")
             return
 
-        await update.message.reply_text(f"📝 Transcripción:\n{transcript}")
+        await send_long_message(update, f"📝 Transcripción:\n{transcript}")
 
         # Reusa el mismo flujo de NL→acción→excel
         try:
             await process_natural_language(update, context, transcript)
         except Exception as e:
-            await update.message.reply_text(f"❌ Falló process_natural_language: {e}")
+            await send_long_message(update, f"❌ Falló process_natural_language: {e}")
 
 
     finally:
@@ -331,7 +417,7 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
         log.info("🧠 LLM ACTION:\n%s", json.dumps(action, indent=2, ensure_ascii=False))
 
         if op == "chat":
-            await update.message.reply_text(action["message"])
+            await send_long_message(update, action["message"])
             return
 
         if op == "add":
@@ -403,9 +489,8 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
 
             new_id = store.add(book_norm)
             saved = store.get_by_id(new_id)
-            await update.message.reply_text(
-                "✅📝 Añadido\n\n" + fmt_row(saved or {"id": new_id}),
-                parse_mode=ParseMode.HTML
+            await send_long_message(update,
+                "✅📝 Añadido\n\n" + fmt_row(saved or {"id": new_id})
             )
             return
 
@@ -414,14 +499,12 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
         if op == "get":
             ref = action.get("ref")
             if not ref:
-                await update.message.reply_text(
-                    "No puedo identificar el libro. Indica un id o una referencia clara."
-                )
+                await send_long_message(update, "No puedo identificar el libro. Indica un id o una referencia clara.")
                 return
 
             book_id = resolve_ref_to_id(store, ref)
             if not book_id:
-                await update.message.reply_text(
+                await send_long_message(update,
                     "No pude identificar un único libro con esa referencia.\n"
                     "Dame el id (ej: 3659) o más precisión."
                 )
@@ -429,9 +512,9 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
 
             row = store.get_by_id(book_id)
             if not row:
-                await update.message.reply_text("No encontrado.")
+                await send_long_message(update, "No encontrado.")
             else:
-                await update.message.reply_text(fmt_row(row), parse_mode=ParseMode.HTML)
+                await send_long_message(update, fmt_row(row))
             return
 
 
@@ -449,20 +532,20 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
             criteria = {k: v for k, v in criteria.items() if v}
             res = store.find(criteria, limit=20)
             if not res:
-                await update.message.reply_text("Sin resultados.")
+                await send_long_message(update, "Sin resultados.")
                 return
             lines = [f"• <code>{r['id']}</code> — {r.get('Título','')} ({r.get('Autor','')})" for r in res]
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+            await send_long_message(update, "\n".join(lines))
             return
 
         if op == "last":
             n = int(action["n"])
             res = store.last(n)
             if not res:
-                await update.message.reply_text("Sin registros.")
+                await send_long_message(update, "Sin registros.")
                 return
             lines = [f"• <code>{r['id']}</code> — {r.get('Título','')} ({r.get('Autor','')})" for r in res]
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+            await send_long_message(update, "\n".join(lines))
             return
 
         if op == "set_pos":
@@ -477,15 +560,15 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
                 }
 
             if not ref:
-                await update.message.reply_text("No puedo identificar el libro. Dame un id o referencia.")
+                await send_long_message(update, "No puedo identificar el libro. Dame un id o referencia.")
                 return
             if pos.get("fila") is None or pos.get("columna") is None:
-                await update.message.reply_text("Me falta fila y/o columna. Ej: 'pon la fila 3 y columna 4 del libro 2'")
+                await send_long_message(update, "Me falta fila y/o columna. Ej: 'pon la fila 3 y columna 4 del libro 2'")
                 return
 
             book_id = resolve_ref_to_id(store, ref)
             if not book_id:
-                await update.message.reply_text(
+                await send_long_message(update, 
                     "No pude identificar un único libro con esa referencia.\n"
                     "Dame el id o más precisión."
                 )
@@ -493,11 +576,11 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
 
             ok = store.set_pos(book_id, fila=int(pos["fila"]), columna=int(pos["columna"]))
             if not ok:
-                await update.message.reply_text("No encontrado para actualizar posición.")
+                await send_long_message(update, "No encontrado para actualizar posición.")
                 return
 
             row = store.get_by_id(book_id)
-            await update.message.reply_text("✅ Posición actualizada\n\n" + fmt_row(row or {"id": book_id}), parse_mode=ParseMode.HTML)
+            await send_long_message(update, "✅ Posición actualizada\n\n" + fmt_row(row or {"id": book_id}))
             return
 
 
@@ -505,21 +588,21 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
             ref = action["ref"]
             isbn = action["isbn"].strip()
             if not isbn:
-                await update.message.reply_text("ISBN vacío.")
+                await send_long_message(update, "ISBN vacío.")
                 return
             book_id = resolve_ref_to_id(store, ref)
             if not book_id:
-                await update.message.reply_text(
+                await send_long_message(update, 
                     "No pude identificar un único libro con esa referencia.\n"
                     "Dame el id (ej: 1453) o más precisión."
                 )
                 return
             ok = store.set_isbn(book_id, isbn=isbn)
             if not ok:
-                await update.message.reply_text("No encontrado para actualizar ISBN.")
+                await send_long_message(update, "No encontrado para actualizar ISBN.")
                 return
             row = store.get_by_id(book_id)
-            await update.message.reply_text("✅ ISBN actualizado\n\n" + fmt_row(row or {"id": book_id}), parse_mode=ParseMode.HTML)
+            await send_long_message(update, "✅ ISBN actualizado\n\n" + fmt_row(row or {"id": book_id}))
             return
         
         if op == "update":
@@ -527,15 +610,17 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
             changes = action.get("changes") or {}
 
             if not ref:
-                await update.message.reply_text("No puedo identificar el libro. Dame un id o una referencia.")
+                await send_long_message(update, "No puedo identificar el libro. Dame un id o una referencia.")
                 return
             if not isinstance(changes, dict) or not changes:
-                await update.message.reply_text("No veo cambios a aplicar. Dime qué campo quieres actualizar.")
+                await send_long_message(update, "No veo cambios a aplicar. Dime qué campo quieres actualizar.")
                 return
 
             book_id = resolve_ref_to_id(store, ref)
+            row_before = store.get_by_id(book_id)
+
             if not book_id:
-                await update.message.reply_text(
+                await send_long_message(update, 
                     "No pude identificar un único libro con esa referencia.\n"
                     "Dame el id (ej: 1452) o más precisión."
                 )
@@ -544,7 +629,7 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
             if "f_revision" in changes:
                 v = changes["f_revision"]
 
-                if v == "EMPTY":
+                if v == "EMPTY": # Desmarcar como no revisado → vacío sin fecha
                     changes["f_revision"] = ""
 
                 else:
@@ -562,11 +647,13 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
 
             ok = store.update_fields(book_id, changes)
             if not ok:
-                await update.message.reply_text("No encontrado para actualizar.")
+                await send_long_message(update, "No encontrado para actualizar.")
                 return
 
-            row = store.get_by_id(book_id)
-            await update.message.reply_text("✅ Actualizado\n\n" + fmt_row(row or {"id": book_id}), parse_mode=ParseMode.HTML)
+            row_after = store.get_by_id(book_id)
+            await send_long_message(update, 
+                "✅ Actualizado\n\n" + fmt_row(row_after or {"id": book_id}, prev=row_before, changed_keys=set(changes.keys()))
+            )
             return
 
         if op == "get":
@@ -575,14 +662,14 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
             if book_id:
                 row = store.get_by_id(book_id)
                 if not row:
-                    await update.message.reply_text("No encontrado.")
+                    await send_long_message(update, "No encontrado.")
                 else:
-                    await update.message.reply_text(fmt_row(row), parse_mode=ParseMode.HTML)
+                    await send_long_message(update, fmt_row(row))
                 return
 
             ref = action.get("ref")
             if not ref:
-                await update.message.reply_text("No entiendo qué libro consultar. Prueba con id, ISBN, título o autor.")
+                await send_long_message(update, "No entiendo qué libro consultar. Prueba con id, ISBN, título o autor.")
                 return
 
             rtype = ref.get("type")
@@ -603,19 +690,19 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
 
                 res = store.find(criteria, limit=20)
                 if not res:
-                    await update.message.reply_text("No hay resultados.")
+                    await send_long_message(update, "No hay resultados.")
                     return
 
                 # Si hay 1 solo, puedes mostrar ficha completa
                 if len(res) == 1:
-                    await update.message.reply_text(fmt_row(res[0]), parse_mode=ParseMode.HTML)
+                    await send_long_message(update, fmt_row(res[0]))
                     return
 
                 # Si hay varios, lista
                 lines = [f"Encontré {len(res)} resultados:\n"]
                 for r in res[:20]:
                     lines.append(f"• <code>{r['id']}</code> — {r.get('Título','')} ({r.get('Autor','')})")
-                await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+                await send_long_message(update, "\n".join(lines))
                 return
 
             # Si ref es id/isbn => intentar resolver a único y mostrar ficha
@@ -623,20 +710,20 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
             if resolved_id:
                 row = store.get_by_id(resolved_id)
                 if not row:
-                    await update.message.reply_text("No encontrado.")
+                    await send_long_message(update, "No encontrado.")
                 else:
-                    await update.message.reply_text(fmt_row(row), parse_mode=ParseMode.HTML)
+                    await send_long_message(update, fmt_row(row))
                 return
 
             # ISBN duplicado o id no encontrado
             if not candidates:
-                await update.message.reply_text("No hay resultados.")
+                await send_long_message(update, "No hay resultados.")
                 return
 
             lines = ["Encontré varios. Indícame el id exacto, por ejemplo: 723\n"]
             for r in candidates[:10]:
                 lines.append(f"• <code>{r['id']}</code> — {r.get('Título','')} ({r.get('Autor','')})")
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+            await send_long_message(update, "\n".join(lines))
             return
 
 
@@ -644,29 +731,29 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
         if op == "delete":
             ref = action.get("ref")
             if not ref:
-                await update.message.reply_text("Dime qué libro borrar (por id).")
+                await send_long_message(update, "Dime qué libro borrar (por id).")
                 return
 
             book_id = resolve_ref_to_id(store, ref)
             if book_id is None:
-                await update.message.reply_text("No pude identificar ese libro para borrarlo.")
+                await send_long_message(update, "No pude identificar ese libro para borrarlo.")
                 return
 
             ok = store.delete_and_compact(book_id)
             if not ok:
-                await update.message.reply_text("No encontrado para borrar.")
+                await send_long_message(update, "No encontrado para borrar.")
                 return
 
-            await update.message.reply_text(f"🗑️ Borrado el libro {book_id} y compactado el catálogo.")
+            await send_long_message(update, f"🗑️ Borrado el libro {book_id} y compactado el catálogo.")
             return
 
 
 
-        await update.message.reply_text(f"Operación no soportada: {op}")
+        await send_long_message(update, f"Operación no soportada: {op}")
 
     except Exception as e:
         log.exception("Error")
-        await update.message.reply_text(f"❌ Error: {e}")
+        await send_long_message(update, f"❌ Error: {e}")
 
 
 

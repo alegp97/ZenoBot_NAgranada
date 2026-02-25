@@ -328,3 +328,38 @@ class ExcelStore:
 
             wb.save(self.path)
             return True
+
+
+    def search_by_field(self, field_name: str, op: str, value: str):
+        """
+        field_name: nombre interno (ej: 'Autor', 'Título', 'Categoría', 'Editorial', 'Año', 'Procedencia', 'Fila', 'Columna', 'ISBN', 'F_revision')
+        op: 'eq' | 'contains' | 'startswith' | 'endswith' | 'neq'
+        value: texto a comparar
+        """
+        rows = self.get_all()  # o como lo llames tú (lista de dicts)
+        v = (value or "").strip()
+
+        def norm(x):
+            if x is None:
+                return ""
+            return str(x).strip()
+
+        def match(cell):
+            c = norm(cell)
+            if op == "eq":
+                return c.casefold() == v.casefold()
+            if op == "neq":
+                return c.casefold() != v.casefold()
+            if op == "contains":
+                return v.casefold() in c.casefold()
+            if op == "startswith":
+                return c.casefold().startswith(v.casefold())
+            if op == "endswith":
+                return c.casefold().endswith(v.casefold())
+            return False
+
+        out = []
+        for r in rows:
+            if match(r.get(field_name)):
+                out.append(r)
+        return out
