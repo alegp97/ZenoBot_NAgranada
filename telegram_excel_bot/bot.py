@@ -258,7 +258,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• dame el 3756\n"
         "• busca por autor Platon\n"
         "• encuentra por editorial Nueva Acrópolis\n"
-        "• busca por año 1950\n\n"
+        "• busca por año 1950\n"
+        "• busca por categoría Filosofía\n"
+        "• muéstrame libros cuya procedencia sea Donación\n"
+        "• lista libros de la columna 3\n"
+        "• busca por comentarios manuscrito\n\n"
 
         "🗑️ <b>Eliminar</b>\n"
         "• borra el libro número 12\n\n"
@@ -528,14 +532,29 @@ async def process_natural_language(update: Update, context: ContextTypes.DEFAULT
                 "editorial": (q.get("editorial") or "").strip(),
                 "ano": str(q.get("ano") or "").strip(),
                 "isbn": (q.get("isbn") or "").strip(),
+                "procedencia": (q.get("procedencia") or "").strip(),
+                "categoria": (q.get("categoria") or "").strip(),
+                "f_revision": (q.get("f_revision") or "").strip(),
+                "comentarios": (q.get("comentarios") or "").strip(),
+                "fila": str(q.get("fila") or "").strip(),
+                "columna": str(q.get("columna") or "").strip(),
             }
             criteria = {k: v for k, v in criteria.items() if v}
             res = store.find(criteria, limit=20)
             if not res:
                 await send_long_message(update, "Sin resultados.")
                 return
-            lines = [f"• <code>{r['id']}</code> — {r.get('Título','')} ({r.get('Autor','')})" for r in res]
-            await send_long_message(update, "\n".join(lines))
+            if len(res) <= 5:
+                parts = [f"Encontré {len(res)} resultado(s):\n"]
+                for r in res:
+                    parts.append(fmt_row(r))
+                    parts.append("")  # línea en blanco entre libros
+                await send_long_message(update, "\n".join(parts))
+            else:
+                lines = [f"Encontré {len(res)} resultados:\n"]
+                for r in res:
+                    lines.append(f"• <code>{r['id']}</code> — {r.get('Título','')} ({r.get('Autor','')})")
+                await send_long_message(update, "\n".join(lines))
             return
 
         if op == "last":

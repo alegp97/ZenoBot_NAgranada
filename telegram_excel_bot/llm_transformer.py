@@ -62,8 +62,11 @@ ACTION_SCHEMA: Dict[str, Any] = {
                     "procedencia": {"type": "string"},
                     "categoria": {"type": "string"},
                     "f_revision": {"type": "string"},
+                    "comentarios": {"type": "string"},
                     "isbn": {"type": "string"},
                     "id": {"type": "string"},
+                    "fila": {"type": "string"},
+                    "columna": {"type": "string"},
                 },
                 "required": [],
             },
@@ -211,9 +214,12 @@ Reglas:
 - Si el usuario dice de "busca", "buscar", "encuentra", "lista", "muéstrame todos", "dame todos"  "por autor X" => query.autor="X" (op=find).
 - Si el usuario dice de "busca", "buscar", "encuentra", "lista", "muéstrame todos", "dame todos"  "por título X" => query.titulo="X" (op=find).
 - Si el usuario dice de "busca", "buscar", "encuentra", "lista", "muéstrame todos", "dame todos"  "por editorial X" => query.editorial="X" (op=find). Etcétera para los demás campos.
+- Si el usuario dice "libros cuyo campo X sea Y" o "muéstrame los libros de categoría Y" o "busca por procedencia Y" => op="find", query.X="Y". Aplica a TODOS los campos: titulo, autor, editorial, ano, procedencia, categoria, f_revision, comentarios, isbn, fila, columna.
+- Para fila y columna en query, convierte el valor a string (ej: query.fila="3", query.columna="5").
 - No cambies autor por editorial ni inventes el campo.
 
 DESAMBIGUACIÓN:
+- Si el usuario introduce palabras malamente escritas, itenta asumir la más probable/parecida
 - Si el texto contiene un número corto seguido inmediatamente de un ISBN (ej: "2A-978-..."):
   - El número corto es el id del libro.
   - El número largo (978/979...) es el ISBN.

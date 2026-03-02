@@ -156,6 +156,10 @@ class ExcelStore:
             row[idx["Columna"] - 1] = book.get("columna", None)
             row[idx["Fila"] - 1] = book.get("fila", None)
             row[idx["ISBN"] - 1] = book.get("isbn", "") or ""
+            row[idx["Procedencia"] - 1] = book.get("procedencia", "") or ""
+            row[idx["Categoría"] - 1] = book.get("categoria", "") or ""
+            row[idx["F_revision"] - 1] = book.get("f_revision", "") or ""
+            row[idx["Comentarios"] - 1] = book.get("comentarios", "") or ""
 
             ws.append(row)
             wb.save(self.path)
@@ -193,6 +197,10 @@ class ExcelStore:
             "fila": "Fila",
             "columna": "Columna",
             "id": "id",
+            "procedencia": "Procedencia",
+            "categoria": "Categoría",
+            "f_revision": "F_revision",
+            "comentarios": "Comentarios",
         }
 
         with FileLock(self.lock_path):
@@ -329,6 +337,13 @@ class ExcelStore:
             wb.save(self.path)
             return True
 
+
+    def get_all(self) -> list[dict[str, Any]]:
+        """Devuelve todas las filas del catálogo como lista de dicts."""
+        with FileLock(self.lock_path):
+            wb, ws = self._open()
+            idx = self._header_index(ws)
+            return [self._row_to_dict(ws, r, idx) for r in range(2, ws.max_row + 1)]
 
     def search_by_field(self, field_name: str, op: str, value: str):
         """
